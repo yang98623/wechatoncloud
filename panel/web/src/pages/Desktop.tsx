@@ -125,17 +125,17 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
     }
   });
   const setMode = (m: 'forward' | 'seamless') => {
-    setInputMode(m);
     try {
       window.localStorage.setItem('woc_input_mode', m);
-      // 同步写好 enable_ime，供下面重挂的 iframe 里 noVNC 连接时读取
+      // 同步写好 enable_ime，重载后新页面的 noVNC 连接时即读到
       window.localStorage.setItem('enable_ime', m === 'seamless' ? 'true' : 'false');
     } catch {
       /* 隐私模式禁用 localStorage：忽略 */
     }
-    // 关键：重挂 iframe 让 noVNC 重新读取 enable_ime。否则当前已连接的会话仍是旧模式，
-    // 表现为"刚切到无感还是打出英文，要换页再回来才行"。
-    setVncNonce((n) => n + 1);
+    // 整页重载切换：先卸载旧页面（彻底关闭旧 VNC ws），再以新 enable_ime 干净重连。
+    // 不能用页内 bump vncNonce 重挂 iframe——那会让新旧两条 ws 短暂并存，概率性把实例的 Xvnc 卡死
+    //（需重启容器才恢复、面板重启无效），且新连接常读不到新模式（仍是英文）。整页重载是实测唯一可靠的方式。
+    window.location.reload();
   };
   const [imeText, setImeText] = useState('');
   const [imeSending, setImeSending] = useState(false);
