@@ -887,7 +887,17 @@ function InstanceAdminCard({
   const installed = wx.installed && wx.phase !== 'downloading';
   const offline = inst.runtime !== 'running';
   const working = !!acting || busy; // 生命周期操作中 或 微信下载/更新中 → 锁住卡片
-  const [menuOpen, setMenuOpen] = useState(false); // 「管理」折叠菜单是否展开
+  const [menuOpen, setMenuOpen] = useState(false); // 「管理」菜单是否展开（悬浮层，不占文档流）
+  const menuRef = useRef<HTMLDivElement>(null);
+  // 悬浮下拉：点击菜单外部时关闭
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [menuOpen]);
 
   let badge: { text: string; cls: string };
   if (acting) badge = { text: '处理中', cls: 'tag-busy' };
@@ -905,7 +915,7 @@ function InstanceAdminCard({
   else sub = '微信尚未安装';
 
   return (
-    <div className="inst-card">
+    <div className={'inst-card' + (menuOpen ? ' open-menu' : '')}>
       <div className="inst-head">
         <span className="inst-name">{inst.name}</span>
         <span className={'tag ' + badge.cls}>{badge.text}</span>
@@ -939,13 +949,14 @@ function InstanceAdminCard({
             )}
           </div>
 
-          <button className={'inst-menu-toggle' + (menuOpen ? ' open' : '')} onClick={() => setMenuOpen((v) => !v)}>
-            <span>管理</span>
-            <span className="inst-menu-caret">{CaretIcon}</span>
-          </button>
+          <div className="inst-menu-wrap" ref={menuRef}>
+            <button className={'inst-menu-toggle' + (menuOpen ? ' open' : '')} onClick={() => setMenuOpen((v) => !v)}>
+              <span>管理</span>
+              <span className="inst-menu-caret">{CaretIcon}</span>
+            </button>
 
-          {menuOpen && (
-            <div className="inst-menu">
+            {menuOpen && (
+              <div className="inst-menu" onClick={() => setMenuOpen(false)}>
               <div className="inst-menu-group">
                 <div className="inst-menu-label">运维</div>
                 <div className="inst-menu-items">
@@ -997,7 +1008,8 @@ function InstanceAdminCard({
                 </div>
               </div>
             </div>
-          )}
+            )}
+          </div>
         </>
       )}
     </div>
