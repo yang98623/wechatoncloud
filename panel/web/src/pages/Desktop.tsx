@@ -133,8 +133,9 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
       /* 隐私模式禁用 localStorage：忽略 */
     }
     // 整页重载切换：先卸载旧页面（彻底关闭旧 VNC ws），再以新 enable_ime 干净重连。
-    // 不能用页内 bump vncNonce 重挂 iframe——那会让新旧两条 ws 短暂并存，概率性把实例的 Xvnc 卡死
-    //（需重启容器才恢复、面板重启无效），且新连接常读不到新模式（仍是英文）。整页重载是实测唯一可靠的方式。
+    // 不能在页内重挂 iframe 重连——新旧两条 ws 短暂并存会概率性把实例的 Xvnc 卡死（需重启容器才恢复、
+    // 面板重启无效），且新连接常读不到新模式（仍是英文）。整页重载是实测唯一可靠的方式；
+    // 「重新连接」按钮与「重启实例」后的重连同样走整页重载（见 restartInstance / 桌面无响应面板）。
     window.location.reload();
   };
   const [imeText, setImeText] = useState('');
@@ -142,7 +143,6 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
   const [uploading, setUploading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [control, setControl] = useState<{ free: boolean; mine: boolean; holder: string | null } | null>(null);
-  const [vncNonce, setVncNonce] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const dragDepth = useRef(0);
@@ -178,7 +178,7 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
     if (!showVnc || frameLoaded) return;
     const t = window.setTimeout(() => setLoadStuck(true), 12000);
     return () => window.clearTimeout(t);
-  }, [showVnc, frameLoaded, id, vncNonce]);
+  }, [showVnc, frameLoaded, id]);
 
   // 探测态收敛：找到实例即结束；否则给共享列表一点刷新时间（AppShell 已在导航时拉取），超时仍无则判定不存在。
   useEffect(() => {
@@ -304,7 +304,7 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
     } catch {
       /* 隐私模式等禁用 localStorage：忽略 */
     }
-  }, [id, vncNonce, inputMode]);
+  }, [id, inputMode]);
 
   // 无感模式：往同源 iframe 装「中文转发 + 有序队列」钩子；切回转发/重连/卸载时自动移除。
   useEffect(() => {
@@ -314,7 +314,7 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
     if (!win || !doc) return;
     const cleanup = installSeamlessIme(win, doc, id);
     return cleanup;
-  }, [inputMode, showVnc, frameLoaded, id, vncNonce]);
+  }, [inputMode, showVnc, frameLoaded, id]);
 
   // 音频/麦克风桥接：实例就绪即自动连接 kclient 的音频流（扬声器恒开，无需手动找工具条）；
   // 仅当本实例处于焦点（标签页可见且窗口聚焦）时出声/收音，失焦立即断开，避免多实例多端串音。
@@ -495,9 +495,10 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
     try {
       await api.instanceRestart(id);
       toast('已重启，正在重连…', 'ok');
-      setFrameLoaded(false);
-      setVncNonce((n) => n + 1); // 强制 iframe 重挂、重连
-      await reload();
+      // 整页重载干净重连：旧 ws 指向已销毁的旧容器，重载后连到全新容器。
+      // 不能页内 bump iframe 重挂——新旧 ws 并存会概率性把 Xvnc 卡死（与 setMode 同理，见上方注释）。
+      // 稍等让新容器的 KasmVNC 起来；noVNC autoconnect+reconnect 会在就绪后自动连上。
+      setTimeout(() => window.location.reload(), 1200);
     } catch (e: any) {
       toast(e.message || '重启失败', 'error');
     }
@@ -645,7 +646,7 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
         <div className="iv-stage iv-stage--vnc">
           <div className="iv-canvas">
           <iframe
-            key={`${id}:${vncNonce}`}
+            key={id}
             ref={frameRef}
             className="iv-frame"
             src={desktopUrl(id)}
@@ -681,11 +682,8 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
               <div className="iv-stuck-actions">
                 <button
                   className="btn btn-primary"
-                  onClick={() => {
-                    setLoadStuck(false);
-                    setFrameLoaded(false);
-                    setVncNonce((n) => n + 1); // 强制 iframe 重挂、重新请求
-                  }}
+                  onClick={() => window.location.reload()}
+                  title="整页重载干净重连（避免页内重挂导致 ws 并存把 Xvnc 卡死）"
                 >
                   重新连接
                 </button>
@@ -696,7 +694,7 @@ export default function InstanceView({ onOpenMenu }: { onOpenMenu: () => void })
                 )}
               </div>
               <div className="iv-loading-sub" style={{ marginTop: 8 }}>
-                管理员也可稍候，面板会自动检测无响应实例并重启自愈。
+                若反复无响应，点「重启实例」即可恢复（数据保留）。
               </div>
             </div>
           )}
